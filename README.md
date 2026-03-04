@@ -19,30 +19,15 @@ Unlike full-screen file managers (yazi, nnn, ranger), ndir renders **inline** â€
 
 ## Install
 
-### Build from source
-
-Requires Rust toolchain.
-
 ```bash
-git clone https://github.com/tonegawa07/ndir.git
-cd ndir
-cargo build --release
+cargo install ndir
 ```
-
-Binary will be at `target/release/ndir`.
-
-### Shell setup (zsh)
 
 Add to your `~/.zshrc`:
 
 ```zsh
-export NDIR_BIN="/path/to/ndir"
-source /path/to/ndir/shell/ndir.zsh
+eval "$(ndir --init)"
 ```
-
-This gives you:
-- `ndir` command to launch the navigator
-- `Ctrl+N` keybinding
 
 ## Usage
 
