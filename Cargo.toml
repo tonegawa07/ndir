@@ -1,5 +1,5 @@
 [package]
-name = "cdw"
+name = "ndir"
 version = "0.1.0"
 edition = "2021"
 description = "Inline arrow-key directory navigation for your shell"

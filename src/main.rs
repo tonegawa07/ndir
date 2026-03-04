@@ -20,7 +20,7 @@ fn main() {
             process::exit(1);
         }
         Err(e) => {
-            eprintln!("cdw: {}", e);
+            eprintln!("ndir: {}", e);
             process::exit(1);
         }
     }

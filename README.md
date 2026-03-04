@@ -1,13 +1,13 @@
-# cdw
+# ndir
 
-Inline directory navigator for your shell. Browse and cd into directories without leaving your prompt.
+Navigate directories inline in your shell. Browse and cd without leaving your prompt.
 
-Unlike full-screen file managers (yazi, nnn, ranger), cdw renders **inline** — right below your prompt.
+Unlike full-screen file managers (yazi, nnn, ranger), ndir renders **inline** — right below your prompt.
 
 ## Demo
 
 ```
-~/projects $ n
+~/projects $ ndir
 
   ~/projects
  > frontend/
@@ -24,24 +24,24 @@ Unlike full-screen file managers (yazi, nnn, ranger), cdw renders **inline** —
 Requires Rust toolchain.
 
 ```bash
-git clone https://github.com/tonegawa07/cdw.git
-cd cdw
+git clone https://github.com/tonegawa07/ndir.git
+cd ndir
 cargo build --release
 ```
 
-Binary will be at `target/release/cdw`.
+Binary will be at `target/release/ndir`.
 
 ### Shell setup (zsh)
 
 Add to your `~/.zshrc`:
 
 ```zsh
-export CDW_BIN="/path/to/cdw"
-source /path/to/cdw/shell/cdw.zsh
+export NDIR_BIN="/path/to/ndir"
+source /path/to/ndir/shell/ndir.zsh
 ```
 
 This gives you:
-- `n` command to launch the navigator
+- `ndir` command to launch the navigator
 - `Ctrl+N` keybinding
 
 ## Usage
