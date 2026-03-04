@@ -4,6 +4,10 @@ version = "0.1.0"
 edition = "2021"
 description = "Inline arrow-key directory navigation for your shell"
 license = "MIT"
+repository = "https://github.com/tonegawa07/ndir"
+homepage = "https://github.com/tonegawa07/ndir"
+keywords = ["cli", "directory", "navigation", "terminal", "fuzzy"]
+categories = ["command-line-utilities"]
 
 [dependencies]
 crossterm = "0.28"
