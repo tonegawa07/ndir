@@ -12,6 +12,7 @@ const MAX_VISIBLE: usize = 15;
 pub struct Renderer {
     tty: File,
     previous_lines: usize,
+    flash: Option<String>,
 }
 
 macro_rules! crlf {
@@ -21,7 +22,7 @@ macro_rules! crlf {
 impl Renderer {
     pub fn new() -> io::Result<Self> {
         let tty = fs::OpenOptions::new().write(true).open("/dev/tty")?;
-        Ok(Self { tty, previous_lines: 0 })
+        Ok(Self { tty, previous_lines: 0, flash: None })
     }
 
     pub fn render(
@@ -105,9 +106,18 @@ impl Renderer {
             }
         }
 
+        // Flash message
+        if let Some(msg) = self.flash.take() {
+            queue!(self.tty, Clear(ClearType::CurrentLine), SetForegroundColor(Color::Green))?;
+            write!(self.tty, "  {}", msg)?;
+            queue!(self.tty, ResetColor)?;
+            crlf!(self.tty)?;
+            lines += 1;
+        }
+
         // Footer
         queue!(self.tty, Clear(ClearType::CurrentLine), SetForegroundColor(Color::DarkGrey))?;
-        write!(self.tty, "  enter:cd  tab:here  arrows:navigate  esc:quit")?;
+        write!(self.tty, "  enter:cd  tab:here  Y:copy  arrows:navigate  esc:quit")?;
         queue!(self.tty, ResetColor)?;
         crlf!(self.tty)?;
         lines += 1;
@@ -127,6 +137,10 @@ impl Renderer {
 
         self.previous_lines = lines;
         Ok(())
+    }
+
+    pub fn set_flash(&mut self, msg: &str) {
+        self.flash = Some(msg.to_string());
     }
 
     pub fn cleanup(&mut self) -> io::Result<()> {

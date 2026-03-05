@@ -5,6 +5,7 @@ use crossterm::{
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 
 use crate::fuzzy::FuzzyFilter;
 use crate::render::Renderer;
@@ -70,6 +71,10 @@ fn event_loop(
                 Action::Continue => {}
                 Action::Accept(path) => return Ok(NavigationResult::Selected(path)),
                 Action::Cancel => return Ok(NavigationResult::Cancelled),
+                Action::CopyPath(path) => {
+                    copy_to_clipboard(&path.display().to_string());
+                    renderer.set_flash("Copied!");
+                }
             }
         }
     }
@@ -79,6 +84,7 @@ enum Action {
     Continue,
     Accept(PathBuf),
     Cancel,
+    CopyPath(PathBuf),
 }
 
 fn handle_key(
@@ -164,6 +170,17 @@ fn handle_key(
         // Tab: cd to current directory
         KeyCode::Tab => Action::Accept(cwd.clone()),
 
+        // Copy path
+        KeyCode::Char('Y') => {
+            if total > 0 && *selected < total {
+                let target = cwd.join(&filtered[*selected]);
+                if let Ok(canonical) = fs::canonicalize(&target) {
+                    return Action::CopyPath(canonical);
+                }
+            }
+            Action::Continue
+        }
+
         // Toggle hidden
         KeyCode::Char('h') if key.modifiers.contains(KeyModifiers::CONTROL) => {
             *show_hidden = !*show_hidden;
@@ -215,6 +232,40 @@ fn filter_dirs(dirs: &[String], query: &str, fuzzy: &FuzzyFilter) -> Vec<String>
     }
     let matches = fuzzy.filter(query, dirs);
     matches.into_iter().map(|(i, _)| dirs[i].clone()).collect()
+}
+
+fn copy_to_clipboard(text: &str) {
+    if cfg!(target_os = "macos") {
+        let mut child = Command::new("pbcopy")
+            .stdin(std::process::Stdio::piped())
+            .spawn()
+            .ok();
+        if let Some(ref mut c) = child {
+            if let Some(ref mut stdin) = c.stdin {
+                let _ = io::Write::write_all(stdin, text.as_bytes());
+            }
+            let _ = c.wait();
+        }
+    } else {
+        // Linux: try xclip, then xsel
+        let mut child = Command::new("xclip")
+            .args(["-selection", "clipboard"])
+            .stdin(std::process::Stdio::piped())
+            .spawn()
+            .or_else(|_| {
+                Command::new("xsel")
+                    .args(["--clipboard", "--input"])
+                    .stdin(std::process::Stdio::piped())
+                    .spawn()
+            })
+            .ok();
+        if let Some(ref mut c) = child {
+            if let Some(ref mut stdin) = c.stdin {
+                let _ = io::Write::write_all(stdin, text.as_bytes());
+            }
+            let _ = c.wait();
+        }
+    }
 }
 
 fn adjust_scroll(total: usize, selected: usize, offset: &mut usize) {
