@@ -12,6 +12,12 @@ use crate::render::Renderer;
 
 const MAX_VISIBLE: usize = 15;
 
+#[derive(Clone)]
+pub struct Entry {
+    pub name: String,
+    pub is_dir: bool,
+}
+
 pub enum NavigationResult {
     Selected(PathBuf),
     Cancelled,
@@ -22,6 +28,7 @@ pub fn run(start_dir: PathBuf) -> io::Result<NavigationResult> {
     let mut selected: usize = 0;
     let mut query = String::new();
     let mut show_hidden = false;
+    let mut show_files = false;
     let mut scroll_offset: usize = 0;
     let fuzzy = FuzzyFilter::new();
     let mut renderer = Renderer::new()?;
@@ -34,7 +41,7 @@ pub fn run(start_dir: PathBuf) -> io::Result<NavigationResult> {
         default_hook(info);
     }));
 
-    let result = event_loop(&mut cwd, &mut selected, &mut query, &mut show_hidden, &mut scroll_offset, &fuzzy, &mut renderer);
+    let result = event_loop(&mut cwd, &mut selected, &mut query, &mut show_hidden, &mut show_files, &mut scroll_offset, &fuzzy, &mut renderer);
 
     let _ = renderer.cleanup();
     let _ = terminal::disable_raw_mode();
@@ -48,13 +55,14 @@ fn event_loop(
     selected: &mut usize,
     query: &mut String,
     show_hidden: &mut bool,
+    show_files: &mut bool,
     scroll_offset: &mut usize,
     fuzzy: &FuzzyFilter,
     renderer: &mut Renderer,
 ) -> io::Result<NavigationResult> {
     loop {
-        let all = read_dirs(cwd, *show_hidden);
-        let filtered = filter_dirs(&all, query, fuzzy);
+        let all = read_entries(cwd, *show_hidden, *show_files);
+        let filtered = filter_entries(&all, query, fuzzy);
 
         // Clamp
         if filtered.is_empty() {
@@ -64,10 +72,10 @@ fn event_loop(
         }
         adjust_scroll(filtered.len(), *selected, scroll_offset);
 
-        renderer.render(cwd, &filtered, *selected, query, *show_hidden, *scroll_offset)?;
+        renderer.render(cwd, &filtered, *selected, query, *show_hidden, *show_files, *scroll_offset)?;
 
         if let Event::Key(key) = event::read()? {
-            match handle_key(key, cwd, selected, query, show_hidden, scroll_offset, &filtered) {
+            match handle_key(key, cwd, selected, query, show_hidden, show_files, scroll_offset, &filtered) {
                 Action::Continue => {}
                 Action::Accept(path) => return Ok(NavigationResult::Selected(path)),
                 Action::Cancel => return Ok(NavigationResult::Cancelled),
@@ -93,8 +101,9 @@ fn handle_key(
     selected: &mut usize,
     query: &mut String,
     show_hidden: &mut bool,
+    show_files: &mut bool,
     scroll_offset: &mut usize,
-    filtered: &[String],
+    filtered: &[Entry],
 ) -> Action {
     let total = filtered.len();
 
@@ -122,10 +131,10 @@ fn handle_key(
             Action::Continue
         }
 
-        // Enter: accept selected directory
+        // Enter: accept selected directory (ignore files)
         KeyCode::Enter => {
-            if total > 0 && *selected < total {
-                let target = cwd.join(&filtered[*selected]);
+            if total > 0 && *selected < total && filtered[*selected].is_dir {
+                let target = cwd.join(&filtered[*selected].name);
                 if let Ok(canonical) = fs::canonicalize(&target) {
                     return Action::Accept(canonical);
                 }
@@ -133,10 +142,10 @@ fn handle_key(
             Action::Continue
         }
 
-        // Right: navigate into selected directory
+        // Right: navigate into selected directory (ignore files)
         KeyCode::Right => {
-            if total > 0 && *selected < total {
-                let new_path = cwd.join(&filtered[*selected]);
+            if total > 0 && *selected < total && filtered[*selected].is_dir {
+                let new_path = cwd.join(&filtered[*selected].name);
                 if let Ok(canonical) = fs::canonicalize(&new_path) {
                     *cwd = canonical;
                     *selected = 0;
@@ -157,8 +166,8 @@ fn handle_key(
                     query.clear();
                     *scroll_offset = 0;
                     if let Some(name) = current_name {
-                        let dirs = read_dirs(cwd, *show_hidden);
-                        *selected = dirs.iter().position(|d| *d == name).unwrap_or(0);
+                        let entries = read_entries(cwd, *show_hidden, *show_files);
+                        *selected = entries.iter().position(|e| e.name == name).unwrap_or(0);
                     } else {
                         *selected = 0;
                     }
@@ -173,7 +182,7 @@ fn handle_key(
         // Copy path
         KeyCode::Char('Y') => {
             if total > 0 && *selected < total {
-                let target = cwd.join(&filtered[*selected]);
+                let target = cwd.join(&filtered[*selected].name);
                 if let Ok(canonical) = fs::canonicalize(&target) {
                     return Action::CopyPath(canonical);
                 }
@@ -184,6 +193,15 @@ fn handle_key(
         // Toggle hidden
         KeyCode::Char('h') if key.modifiers.contains(KeyModifiers::CONTROL) => {
             *show_hidden = !*show_hidden;
+            query.clear();
+            *selected = 0;
+            *scroll_offset = 0;
+            Action::Continue
+        }
+
+        // Toggle files
+        KeyCode::Char('f') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            *show_files = !*show_files;
             query.clear();
             *selected = 0;
             *scroll_offset = 0;
@@ -208,30 +226,36 @@ fn handle_key(
     }
 }
 
-fn read_dirs(dir: &Path, show_hidden: bool) -> Vec<String> {
+fn read_entries(dir: &Path, show_hidden: bool, show_files: bool) -> Vec<Entry> {
     let Ok(rd) = fs::read_dir(dir) else { return Vec::new() };
 
-    let mut dirs: Vec<String> = rd
-        .filter_map(|e| e.ok())
-        .filter_map(|e| {
-            let name = e.file_name().to_string_lossy().to_string();
-            if !show_hidden && name.starts_with('.') { return None; }
-            // Check if it's a directory (follow symlinks)
-            let is_dir = e.path().is_dir();
-            if is_dir { Some(name) } else { None }
-        })
-        .collect();
+    let mut dirs: Vec<Entry> = Vec::new();
+    let mut files: Vec<Entry> = Vec::new();
 
-    dirs.sort_by(|a, b| a.to_lowercase().cmp(&b.to_lowercase()));
+    for e in rd.filter_map(|e| e.ok()) {
+        let name = e.file_name().to_string_lossy().to_string();
+        if !show_hidden && name.starts_with('.') { continue; }
+        let is_dir = e.path().is_dir();
+        if is_dir {
+            dirs.push(Entry { name, is_dir: true });
+        } else if show_files {
+            files.push(Entry { name, is_dir: false });
+        }
+    }
+
+    dirs.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    files.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    dirs.extend(files);
     dirs
 }
 
-fn filter_dirs(dirs: &[String], query: &str, fuzzy: &FuzzyFilter) -> Vec<String> {
+fn filter_entries(entries: &[Entry], query: &str, fuzzy: &FuzzyFilter) -> Vec<Entry> {
     if query.is_empty() {
-        return dirs.to_vec();
+        return entries.to_vec();
     }
-    let matches = fuzzy.filter(query, dirs);
-    matches.into_iter().map(|(i, _)| dirs[i].clone()).collect()
+    let names: Vec<String> = entries.iter().map(|e| e.name.clone()).collect();
+    let matches = fuzzy.filter(query, &names);
+    matches.into_iter().map(|(i, _)| entries[i].clone()).collect()
 }
 
 fn copy_to_clipboard(text: &str) {

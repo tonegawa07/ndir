@@ -7,6 +7,8 @@ use std::fs::{self, File};
 use std::io::{self, Write};
 use std::path::Path;
 
+use crate::navigator::Entry;
+
 const MAX_VISIBLE: usize = 15;
 
 pub struct Renderer {
@@ -28,10 +30,11 @@ impl Renderer {
     pub fn render(
         &mut self,
         cwd: &Path,
-        entries: &[String],
+        entries: &[Entry],
         selected: usize,
         query: &str,
         show_hidden: bool,
+        show_files: bool,
         scroll_offset: usize,
     ) -> io::Result<()> {
         if self.previous_lines > 0 {
@@ -48,6 +51,11 @@ impl Renderer {
         if show_hidden {
             queue!(self.tty, SetForegroundColor(Color::DarkYellow))?;
             write!(self.tty, " [H]")?;
+            queue!(self.tty, ResetColor)?;
+        }
+        if show_files {
+            queue!(self.tty, SetForegroundColor(Color::DarkYellow))?;
+            write!(self.tty, " [F]")?;
             queue!(self.tty, ResetColor)?;
         }
         crlf!(self.tty)?;
@@ -83,13 +91,20 @@ impl Renderer {
             for i in scroll_offset..end {
                 queue!(self.tty, Clear(ClearType::CurrentLine))?;
 
+                let entry = &entries[i];
+                let suffix = if entry.is_dir { "/" } else { "" };
+
                 if i == selected {
                     queue!(self.tty, SetBackgroundColor(Color::White), SetForegroundColor(Color::Black))?;
-                    write!(self.tty, " > {}/", entries[i])?;
+                    write!(self.tty, " > {}{}", entry.name, suffix)?;
                     queue!(self.tty, SetBackgroundColor(Color::Reset), ResetColor)?;
-                } else {
+                } else if entry.is_dir {
                     queue!(self.tty, SetForegroundColor(Color::Cyan))?;
-                    write!(self.tty, "   {}/", entries[i])?;
+                    write!(self.tty, "   {}{}", entry.name, suffix)?;
+                    queue!(self.tty, ResetColor)?;
+                } else {
+                    queue!(self.tty, SetForegroundColor(Color::DarkGrey))?;
+                    write!(self.tty, "   {}", entry.name)?;
                     queue!(self.tty, ResetColor)?;
                 }
 
@@ -117,7 +132,7 @@ impl Renderer {
 
         // Footer
         queue!(self.tty, Clear(ClearType::CurrentLine), SetForegroundColor(Color::DarkGrey))?;
-        write!(self.tty, "  enter:cd  tab:here  Y:copy  arrows:navigate  esc:quit")?;
+        write!(self.tty, "  enter:cd  tab:here  Y:copy  ^F:files  arrows:navigate  esc:quit")?;
         queue!(self.tty, ResetColor)?;
         crlf!(self.tty)?;
         lines += 1;
