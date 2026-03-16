@@ -47,11 +47,35 @@ cargo run
 
 ## Releasing (for maintainers)
 
-1. Update `CHANGELOG.md`: move items from `[Unreleased]` to `[x.y.z] - YYYY-MM-DD`
-2. Update `version` in `Cargo.toml`
-3. Commit: `git commit -m "Release vx.y.z"`
-4. Tag and push: `git tag vx.y.z && git push && git push --tags`
-5. CI will verify version consistency and publish to crates.io
+### Version numbering
+
+This project follows [Semantic Versioning](https://semver.org/) (`MAJOR.MINOR.PATCH`):
+
+- **PATCH** (e.g. 0.4.3 → 0.4.4): Bug fixes, docs, internal improvements
+- **MINOR** (e.g. 0.4.4 → 0.5.0): New features (backwards compatible)
+- **MAJOR** (e.g. 0.x → 1.0.0): Breaking changes or stable release declaration
+
+### Release steps
+
+```bash
+# 1. Update CHANGELOG.md: move [Unreleased] items to [x.y.z] - YYYY-MM-DD
+# 2. Update version in Cargo.toml
+# 3. Update Cargo.lock
+cargo check
+# 4. Commit
+git add CHANGELOG.md Cargo.toml Cargo.lock
+git commit -m "Release vx.y.z"
+# 5. Tag and push
+git tag vx.y.z
+git push && git push --tags
+```
+
+CI will automatically:
+- Verify that the tag, `Cargo.toml`, and `CHANGELOG.md` versions match
+- Publish to crates.io
+- Build binaries for macOS (x86_64, aarch64) and Linux (x86_64)
+- Create a GitHub Release with the binaries
+- Update the Homebrew formula with new checksums
 
 ## Bug Reports
 
