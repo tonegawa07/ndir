@@ -65,10 +65,17 @@ jobs:
           echo "aarch64_mac=$(sha256sum ndir-${{ github.ref_name }}-aarch64-apple-darwin.tar.gz | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
           echo "x86_64_mac=$(sha256sum ndir-${{ github.ref_name }}-x86_64-apple-darwin.tar.gz | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
           echo "x86_64_linux=$(sha256sum ndir-${{ github.ref_name }}-x86_64-unknown-linux-gnu.tar.gz | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+      - uses: actions/create-github-app-token@v3
+        id: app-token
+        with:
+          app-id: ${{ secrets.HOMEBREW_APP_ID }}
+          private-key: ${{ secrets.HOMEBREW_APP_PRIVATE_KEY }}
+          repositories: homebrew-tap
+          owner: tonegawa07
       - uses: actions/checkout@v4
         with:
           repository: tonegawa07/homebrew-tap
-          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          token: ${{ steps.app-token.outputs.token }}
       - name: Update formula
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
