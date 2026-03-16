@@ -18,18 +18,29 @@ pub struct Entry {
     pub is_dir: bool,
 }
 
+pub struct NavState {
+    pub cwd: PathBuf,
+    pub selected: usize,
+    pub query: String,
+    pub show_hidden: bool,
+    pub show_files: bool,
+    pub scroll_offset: usize,
+}
+
 pub enum NavigationResult {
     Selected(PathBuf),
     Cancelled,
 }
 
 pub fn run(start_dir: PathBuf) -> io::Result<NavigationResult> {
-    let mut cwd = fs::canonicalize(&start_dir)?;
-    let mut selected: usize = 0;
-    let mut query = String::new();
-    let mut show_hidden = false;
-    let mut show_files = false;
-    let mut scroll_offset: usize = 0;
+    let mut state = NavState {
+        cwd: fs::canonicalize(&start_dir)?,
+        selected: 0,
+        query: String::new(),
+        show_hidden: false,
+        show_files: false,
+        scroll_offset: 0,
+    };
     let fuzzy = FuzzyFilter::new();
     let mut renderer = Renderer::new()?;
 
@@ -41,7 +52,7 @@ pub fn run(start_dir: PathBuf) -> io::Result<NavigationResult> {
         default_hook(info);
     }));
 
-    let result = event_loop(&mut cwd, &mut selected, &mut query, &mut show_hidden, &mut show_files, &mut scroll_offset, &fuzzy, &mut renderer);
+    let result = event_loop(&mut state, &fuzzy, &mut renderer);
 
     let _ = renderer.cleanup();
     let _ = terminal::disable_raw_mode();
@@ -51,31 +62,26 @@ pub fn run(start_dir: PathBuf) -> io::Result<NavigationResult> {
 }
 
 fn event_loop(
-    cwd: &mut PathBuf,
-    selected: &mut usize,
-    query: &mut String,
-    show_hidden: &mut bool,
-    show_files: &mut bool,
-    scroll_offset: &mut usize,
+    state: &mut NavState,
     fuzzy: &FuzzyFilter,
     renderer: &mut Renderer,
 ) -> io::Result<NavigationResult> {
     loop {
-        let all = read_entries(cwd, *show_hidden, *show_files);
-        let filtered = filter_entries(&all, query, fuzzy);
+        let all = read_entries(&state.cwd, state.show_hidden, state.show_files);
+        let filtered = filter_entries(&all, &state.query, fuzzy);
 
         // Clamp
         if filtered.is_empty() {
-            *selected = 0;
-        } else if *selected >= filtered.len() {
-            *selected = filtered.len() - 1;
+            state.selected = 0;
+        } else if state.selected >= filtered.len() {
+            state.selected = filtered.len() - 1;
         }
-        adjust_scroll(filtered.len(), *selected, scroll_offset);
+        adjust_scroll(filtered.len(), state.selected, &mut state.scroll_offset);
 
-        renderer.render(cwd, &filtered, *selected, query, *show_hidden, *show_files, *scroll_offset)?;
+        renderer.render(state, &filtered)?;
 
         if let Event::Key(key) = event::read()? {
-            match handle_key(key, cwd, selected, query, show_hidden, show_files, scroll_offset, &filtered) {
+            match handle_key(key, state, &filtered) {
                 Action::Continue => {}
                 Action::Accept(path) => return Ok(NavigationResult::Selected(path)),
                 Action::Cancel => return Ok(NavigationResult::Cancelled),
@@ -95,16 +101,7 @@ enum Action {
     CopyPath(PathBuf),
 }
 
-fn handle_key(
-    key: KeyEvent,
-    cwd: &mut PathBuf,
-    selected: &mut usize,
-    query: &mut String,
-    show_hidden: &mut bool,
-    show_files: &mut bool,
-    scroll_offset: &mut usize,
-    filtered: &[Entry],
-) -> Action {
+fn handle_key(key: KeyEvent, state: &mut NavState, filtered: &[Entry]) -> Action {
     let total = filtered.len();
 
     match key.code {
@@ -113,28 +110,44 @@ fn handle_key(
 
         // Up
         KeyCode::Up => {
-            if total > 0 { *selected = if *selected == 0 { total - 1 } else { *selected - 1 }; }
+            if total > 0 {
+                state.selected = if state.selected == 0 {
+                    total - 1
+                } else {
+                    state.selected - 1
+                };
+            }
             Action::Continue
         }
         KeyCode::Char('k') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-            if total > 0 { *selected = if *selected == 0 { total - 1 } else { *selected - 1 }; }
+            if total > 0 {
+                state.selected = if state.selected == 0 {
+                    total - 1
+                } else {
+                    state.selected - 1
+                };
+            }
             Action::Continue
         }
 
         // Down
         KeyCode::Down => {
-            if total > 0 { *selected = (*selected + 1) % total; }
+            if total > 0 {
+                state.selected = (state.selected + 1) % total;
+            }
             Action::Continue
         }
         KeyCode::Char('j') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-            if total > 0 { *selected = (*selected + 1) % total; }
+            if total > 0 {
+                state.selected = (state.selected + 1) % total;
+            }
             Action::Continue
         }
 
         // Enter: accept selected directory (ignore files)
         KeyCode::Enter => {
-            if total > 0 && *selected < total && filtered[*selected].is_dir {
-                let target = cwd.join(&filtered[*selected].name);
+            if total > 0 && state.selected < total && filtered[state.selected].is_dir {
+                let target = state.cwd.join(&filtered[state.selected].name);
                 if let Ok(canonical) = fs::canonicalize(&target) {
                     return Action::Accept(canonical);
                 }
@@ -144,13 +157,13 @@ fn handle_key(
 
         // Right: navigate into selected directory (ignore files)
         KeyCode::Right => {
-            if total > 0 && *selected < total && filtered[*selected].is_dir {
-                let new_path = cwd.join(&filtered[*selected].name);
+            if total > 0 && state.selected < total && filtered[state.selected].is_dir {
+                let new_path = state.cwd.join(&filtered[state.selected].name);
                 if let Ok(canonical) = fs::canonicalize(&new_path) {
-                    *cwd = canonical;
-                    *selected = 0;
-                    query.clear();
-                    *scroll_offset = 0;
+                    state.cwd = canonical;
+                    state.selected = 0;
+                    state.query.clear();
+                    state.scroll_offset = 0;
                 }
             }
             Action::Continue
@@ -158,18 +171,21 @@ fn handle_key(
 
         // Left: parent directory
         KeyCode::Left => {
-            let current_name = cwd.file_name().map(|n| n.to_string_lossy().to_string());
-            if let Some(parent) = cwd.parent() {
+            let current_name = state
+                .cwd
+                .file_name()
+                .map(|n| n.to_string_lossy().to_string());
+            if let Some(parent) = state.cwd.parent() {
                 let parent = parent.to_path_buf();
-                if parent != *cwd {
-                    *cwd = parent;
-                    query.clear();
-                    *scroll_offset = 0;
+                if parent != state.cwd {
+                    state.cwd = parent;
+                    state.query.clear();
+                    state.scroll_offset = 0;
                     if let Some(name) = current_name {
-                        let entries = read_entries(cwd, *show_hidden, *show_files);
-                        *selected = entries.iter().position(|e| e.name == name).unwrap_or(0);
+                        let entries = read_entries(&state.cwd, state.show_hidden, state.show_files);
+                        state.selected = entries.iter().position(|e| e.name == name).unwrap_or(0);
                     } else {
-                        *selected = 0;
+                        state.selected = 0;
                     }
                 }
             }
@@ -177,12 +193,12 @@ fn handle_key(
         }
 
         // Tab: cd to current directory
-        KeyCode::Tab => Action::Accept(cwd.clone()),
+        KeyCode::Tab => Action::Accept(state.cwd.clone()),
 
         // Copy path
         KeyCode::Char('Y') => {
-            if total > 0 && *selected < total {
-                let target = cwd.join(&filtered[*selected].name);
+            if total > 0 && state.selected < total {
+                let target = state.cwd.join(&filtered[state.selected].name);
                 if let Ok(canonical) = fs::canonicalize(&target) {
                     return Action::CopyPath(canonical);
                 }
@@ -192,33 +208,33 @@ fn handle_key(
 
         // Toggle hidden
         KeyCode::Char('h') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-            *show_hidden = !*show_hidden;
-            query.clear();
-            *selected = 0;
-            *scroll_offset = 0;
+            state.show_hidden = !state.show_hidden;
+            state.query.clear();
+            state.selected = 0;
+            state.scroll_offset = 0;
             Action::Continue
         }
 
         // Toggle files
         KeyCode::Char('f') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-            *show_files = !*show_files;
-            query.clear();
-            *selected = 0;
-            *scroll_offset = 0;
+            state.show_files = !state.show_files;
+            state.query.clear();
+            state.selected = 0;
+            state.scroll_offset = 0;
             Action::Continue
         }
 
         KeyCode::Backspace => {
-            query.pop();
-            *selected = 0;
-            *scroll_offset = 0;
+            state.query.pop();
+            state.selected = 0;
+            state.scroll_offset = 0;
             Action::Continue
         }
 
         KeyCode::Char(c) if !key.modifiers.contains(KeyModifiers::CONTROL) => {
-            query.push(c);
-            *selected = 0;
-            *scroll_offset = 0;
+            state.query.push(c);
+            state.selected = 0;
+            state.scroll_offset = 0;
             Action::Continue
         }
 
@@ -227,19 +243,26 @@ fn handle_key(
 }
 
 fn read_entries(dir: &Path, show_hidden: bool, show_files: bool) -> Vec<Entry> {
-    let Ok(rd) = fs::read_dir(dir) else { return Vec::new() };
+    let Ok(rd) = fs::read_dir(dir) else {
+        return Vec::new();
+    };
 
     let mut dirs: Vec<Entry> = Vec::new();
     let mut files: Vec<Entry> = Vec::new();
 
     for e in rd.filter_map(|e| e.ok()) {
         let name = e.file_name().to_string_lossy().to_string();
-        if !show_hidden && name.starts_with('.') { continue; }
+        if !show_hidden && name.starts_with('.') {
+            continue;
+        }
         let is_dir = e.path().is_dir();
         if is_dir {
             dirs.push(Entry { name, is_dir: true });
         } else if show_files {
-            files.push(Entry { name, is_dir: false });
+            files.push(Entry {
+                name,
+                is_dir: false,
+            });
         }
     }
 
@@ -255,7 +278,10 @@ fn filter_entries(entries: &[Entry], query: &str, fuzzy: &FuzzyFilter) -> Vec<En
     }
     let names: Vec<String> = entries.iter().map(|e| e.name.clone()).collect();
     let matches = fuzzy.filter(query, &names);
-    matches.into_iter().map(|(i, _)| entries[i].clone()).collect()
+    matches
+        .into_iter()
+        .map(|(i, _)| entries[i].clone())
+        .collect()
 }
 
 fn copy_to_clipboard(text: &str) {

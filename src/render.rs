@@ -1,13 +1,13 @@
 use crossterm::{
     cursor, queue,
-    style::{Attribute, Color, SetAttribute, SetBackgroundColor, SetForegroundColor, ResetColor},
+    style::{Attribute, Color, ResetColor, SetAttribute, SetBackgroundColor, SetForegroundColor},
     terminal::{Clear, ClearType},
 };
 use std::fs::{self, File};
 use std::io::{self, Write};
 use std::path::Path;
 
-use crate::navigator::Entry;
+use crate::navigator::{Entry, NavState};
 
 const MAX_VISIBLE: usize = 15;
 
@@ -18,42 +18,48 @@ pub struct Renderer {
 }
 
 macro_rules! crlf {
-    ($w:expr) => { write!($w, "\r\n") };
+    ($w:expr) => {
+        write!($w, "\r\n")
+    };
 }
 
 impl Renderer {
     pub fn new() -> io::Result<Self> {
         let tty = fs::OpenOptions::new().write(true).open("/dev/tty")?;
-        Ok(Self { tty, previous_lines: 0, flash: None })
+        Ok(Self {
+            tty,
+            previous_lines: 0,
+            flash: None,
+        })
     }
 
-    pub fn render(
-        &mut self,
-        cwd: &Path,
-        entries: &[Entry],
-        selected: usize,
-        query: &str,
-        show_hidden: bool,
-        show_files: bool,
-        scroll_offset: usize,
-    ) -> io::Result<()> {
+    pub fn render(&mut self, state: &NavState, entries: &[Entry]) -> io::Result<()> {
         if self.previous_lines > 0 {
-            queue!(self.tty, cursor::MoveUp(self.previous_lines as u16), cursor::MoveToColumn(0))?;
+            queue!(
+                self.tty,
+                cursor::MoveUp(self.previous_lines as u16),
+                cursor::MoveToColumn(0)
+            )?;
         }
 
         let mut lines: usize = 0;
 
         // Header
-        let display = format_path(cwd);
-        queue!(self.tty, Clear(ClearType::CurrentLine), SetForegroundColor(Color::Blue), SetAttribute(Attribute::Bold))?;
+        let display = format_path(&state.cwd);
+        queue!(
+            self.tty,
+            Clear(ClearType::CurrentLine),
+            SetForegroundColor(Color::Blue),
+            SetAttribute(Attribute::Bold)
+        )?;
         write!(self.tty, "  {}", display)?;
         queue!(self.tty, SetAttribute(Attribute::Reset), ResetColor)?;
-        if show_hidden {
+        if state.show_hidden {
             queue!(self.tty, SetForegroundColor(Color::DarkYellow))?;
             write!(self.tty, " [H]")?;
             queue!(self.tty, ResetColor)?;
         }
-        if show_files {
+        if state.show_files {
             queue!(self.tty, SetForegroundColor(Color::DarkYellow))?;
             write!(self.tty, " [F]")?;
             queue!(self.tty, ResetColor)?;
@@ -62,15 +68,19 @@ impl Renderer {
         lines += 1;
 
         // Search bar
-        if !query.is_empty() {
+        if !state.query.is_empty() {
             queue!(self.tty, Clear(ClearType::CurrentLine))?;
-            write!(self.tty, "  > {}", query)?;
+            write!(self.tty, "  > {}", state.query)?;
             crlf!(self.tty)?;
             lines += 1;
         }
 
         if entries.is_empty() {
-            queue!(self.tty, Clear(ClearType::CurrentLine), SetForegroundColor(Color::DarkGrey))?;
+            queue!(
+                self.tty,
+                Clear(ClearType::CurrentLine),
+                SetForegroundColor(Color::DarkGrey)
+            )?;
             write!(self.tty, "  (empty)")?;
             queue!(self.tty, ResetColor)?;
             crlf!(self.tty)?;
@@ -78,24 +88,36 @@ impl Renderer {
         } else {
             let total = entries.len();
             let visible = total.min(MAX_VISIBLE);
-            let end = (scroll_offset + visible).min(total);
+            let end = (state.scroll_offset + visible).min(total);
 
-            if scroll_offset > 0 {
-                queue!(self.tty, Clear(ClearType::CurrentLine), SetForegroundColor(Color::DarkGrey))?;
-                write!(self.tty, "  ({} more)", scroll_offset)?;
+            if state.scroll_offset > 0 {
+                queue!(
+                    self.tty,
+                    Clear(ClearType::CurrentLine),
+                    SetForegroundColor(Color::DarkGrey)
+                )?;
+                write!(self.tty, "  ({} more)", state.scroll_offset)?;
                 queue!(self.tty, ResetColor)?;
                 crlf!(self.tty)?;
                 lines += 1;
             }
 
-            for i in scroll_offset..end {
+            for (i, entry) in entries
+                .iter()
+                .enumerate()
+                .take(end)
+                .skip(state.scroll_offset)
+            {
                 queue!(self.tty, Clear(ClearType::CurrentLine))?;
 
-                let entry = &entries[i];
                 let suffix = if entry.is_dir { "/" } else { "" };
 
-                if i == selected {
-                    queue!(self.tty, SetBackgroundColor(Color::White), SetForegroundColor(Color::Black))?;
+                if i == state.selected {
+                    queue!(
+                        self.tty,
+                        SetBackgroundColor(Color::White),
+                        SetForegroundColor(Color::Black)
+                    )?;
                     write!(self.tty, " > {}{}", entry.name, suffix)?;
                     queue!(self.tty, SetBackgroundColor(Color::Reset), ResetColor)?;
                 } else if entry.is_dir {
@@ -113,7 +135,11 @@ impl Renderer {
             }
 
             if end < total {
-                queue!(self.tty, Clear(ClearType::CurrentLine), SetForegroundColor(Color::DarkGrey))?;
+                queue!(
+                    self.tty,
+                    Clear(ClearType::CurrentLine),
+                    SetForegroundColor(Color::DarkGrey)
+                )?;
                 write!(self.tty, "  ({} more)", total - end)?;
                 queue!(self.tty, ResetColor)?;
                 crlf!(self.tty)?;
@@ -123,7 +149,11 @@ impl Renderer {
 
         // Flash message
         if let Some(msg) = self.flash.take() {
-            queue!(self.tty, Clear(ClearType::CurrentLine), SetForegroundColor(Color::Green))?;
+            queue!(
+                self.tty,
+                Clear(ClearType::CurrentLine),
+                SetForegroundColor(Color::Green)
+            )?;
             write!(self.tty, "  {}", msg)?;
             queue!(self.tty, ResetColor)?;
             crlf!(self.tty)?;
@@ -131,8 +161,15 @@ impl Renderer {
         }
 
         // Footer
-        queue!(self.tty, Clear(ClearType::CurrentLine), SetForegroundColor(Color::DarkGrey))?;
-        write!(self.tty, "  enter:cd  tab:here  Y:copy  ^F:files  arrows:navigate  esc:quit")?;
+        queue!(
+            self.tty,
+            Clear(ClearType::CurrentLine),
+            SetForegroundColor(Color::DarkGrey)
+        )?;
+        write!(
+            self.tty,
+            "  enter:cd  tab:here  Y:copy  ^F:files  arrows:navigate  esc:quit"
+        )?;
         queue!(self.tty, ResetColor)?;
         crlf!(self.tty)?;
         lines += 1;
@@ -160,12 +197,20 @@ impl Renderer {
 
     pub fn cleanup(&mut self) -> io::Result<()> {
         if self.previous_lines > 0 {
-            queue!(self.tty, cursor::MoveUp(self.previous_lines as u16), cursor::MoveToColumn(0))?;
+            queue!(
+                self.tty,
+                cursor::MoveUp(self.previous_lines as u16),
+                cursor::MoveToColumn(0)
+            )?;
             for _ in 0..self.previous_lines {
                 queue!(self.tty, Clear(ClearType::CurrentLine))?;
                 crlf!(self.tty)?;
             }
-            queue!(self.tty, cursor::MoveUp(self.previous_lines as u16), cursor::MoveToColumn(0))?;
+            queue!(
+                self.tty,
+                cursor::MoveUp(self.previous_lines as u16),
+                cursor::MoveToColumn(0)
+            )?;
             self.tty.flush()?;
         }
         self.previous_lines = 0;
