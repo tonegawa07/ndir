@@ -9,6 +9,11 @@ use std::process;
 fn main() {
     let arg = env::args().nth(1);
 
+    if arg.as_deref() == Some("--version") {
+        println!("ndir {}", env!("CARGO_PKG_VERSION"));
+        return;
+    }
+
     if arg.as_deref() == Some("--init") {
         print!("{}", include_str!("../shell/ndir.zsh"));
         return;
