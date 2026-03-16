@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.4.2] - 2026-03-16
+
+### Fixed
+
+- Homebrew formula auto-update now correctly sets sha256 for all platforms
+
 ## [0.4.1] - 2026-03-16
 
 ### Changed

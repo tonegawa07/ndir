@@ -19,9 +19,19 @@ Unlike full-screen file managers (yazi, nnn, ranger), ndir renders **inline** �
 
 ## Install
 
+### Homebrew
+
+```bash
+brew install tonegawa07/tap/ndir
+```
+
+### Cargo
+
 ```bash
 cargo install ndir
 ```
+
+### Setup
 
 Add to your `~/.zshrc`:
 
@@ -34,12 +44,15 @@ eval "$(ndir --init)"
 | Key | Action |
 |---|---|
 | `↑` `↓` | Move cursor |
+| `Ctrl+K` `Ctrl+J` | Move cursor (vim-style) |
 | `Enter` | cd to selected directory |
 | `→` | Browse into directory |
 | `←` | Go back to parent |
 | `Tab` | cd to current directory |
-| `Esc` | Cancel |
+| `Esc` / `Ctrl+C` | Cancel |
 | `Ctrl+H` | Toggle hidden files |
+| `Ctrl+F` | Toggle file display |
+| `Y` | Copy selected path to clipboard |
 | Type | Fuzzy filter |
 | `Backspace` | Delete filter character |
 
