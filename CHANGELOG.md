@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-03-16
+
+### Changed
+
+- Refactored internal state management for better maintainability
+
+### Added
+
+- CI workflow (fmt, clippy, test)
+- CHANGELOG, CONTRIBUTING guide, issue/PR templates
+- GitHub Releases with pre-built binaries (macOS, Linux)
+- Homebrew tap support (`brew install tonegawa07/tap/ndir`)
+
 ## [0.4.0] - 2026-03-11
 
 ### Added
