@@ -51,3 +51,35 @@ jobs:
             ndir-*.tar.gz
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  update-homebrew:
+    needs: release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+      - name: Compute checksums
+        id: sha
+        run: |
+          echo "aarch64_mac=$(sha256sum ndir-${{ github.ref_name }}-aarch64-apple-darwin.tar.gz | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+          echo "x86_64_mac=$(sha256sum ndir-${{ github.ref_name }}-x86_64-apple-darwin.tar.gz | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+          echo "x86_64_linux=$(sha256sum ndir-${{ github.ref_name }}-x86_64-unknown-linux-gnu.tar.gz | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v4
+        with:
+          repository: tonegawa07/homebrew-tap
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+      - name: Update formula
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          sed -i "s/version \".*\"/version \"${VERSION}\"/" Formula/ndir.rb
+          sed -i '0,/sha256 ".*"/{s/sha256 ".*"/sha256 "${{ steps.sha.outputs.aarch64_mac }}"/}' Formula/ndir.rb
+          sed -i '0,/sha256 ".*"/{s/sha256 ".*"/sha256 "${{ steps.sha.outputs.x86_64_mac }}"/}' Formula/ndir.rb
+          sed -i '0,/sha256 ".*"/{s/sha256 ".*"/sha256 "${{ steps.sha.outputs.x86_64_linux }}"/}' Formula/ndir.rb
+      - name: Commit and push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Formula/ndir.rb
+          git commit -m "Update ndir to ${{ github.ref_name }}"
+          git push
