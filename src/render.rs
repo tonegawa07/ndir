@@ -226,3 +226,29 @@ fn format_path(path: &Path) -> String {
     }
     path.display().to_string()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    #[test]
+    fn format_path_replaces_home_with_tilde() {
+        let home = std::env::var("HOME").expect("HOME not set");
+        let path = PathBuf::from(&home).join("projects/ndir");
+        assert_eq!(format_path(&path), "~/projects/ndir");
+    }
+
+    #[test]
+    fn format_path_returns_full_path_outside_home() {
+        let path = PathBuf::from("/tmp/some/path");
+        assert_eq!(format_path(&path), "/tmp/some/path");
+    }
+
+    #[test]
+    fn format_path_home_itself() {
+        let home = std::env::var("HOME").expect("HOME not set");
+        let path = PathBuf::from(&home);
+        assert_eq!(format_path(&path), "~/");
+    }
+}
