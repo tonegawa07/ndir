@@ -21,8 +21,8 @@ fn main() {
         println!();
         println!("Options:");
         println!("  --init [shell]  Print shell setup script (zsh, bash, fish)");
-        println!("  --version    Print version");
-        println!("  --help       Print this help");
+        println!("  --version       Print version");
+        println!("  --help          Print this help");
         println!();
         println!("Keys:");
         println!("  ↑/↓          Move cursor");
