@@ -1,5 +1,5 @@
 function ndir() {
-    local tmpfile=$(mktemp /tmp/ndir.XXXXXX)
+    local tmpfile=$(mktemp "${TMPDIR:-/tmp}/ndir.XXXXXX")
     command ndir "$@" > "$tmpfile"
     local exit_code=$?
     if [[ $exit_code -eq 0 ]]; then
