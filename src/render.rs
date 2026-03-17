@@ -14,7 +14,7 @@ const MAX_VISIBLE: usize = 15;
 pub struct Renderer {
     tty: File,
     previous_lines: usize,
-    flash: Option<String>,
+    flash: Option<(String, Color)>,
 }
 
 macro_rules! crlf {
@@ -29,7 +29,7 @@ impl Renderer {
         Ok(Self {
             tty,
             previous_lines: 0,
-            flash: None,
+            flash: None::<(String, Color)>,
         })
     }
 
@@ -148,11 +148,11 @@ impl Renderer {
         }
 
         // Flash message
-        if let Some(msg) = self.flash.take() {
+        if let Some((msg, color)) = self.flash.take() {
             queue!(
                 self.tty,
                 Clear(ClearType::CurrentLine),
-                SetForegroundColor(Color::Green)
+                SetForegroundColor(color)
             )?;
             write!(self.tty, "  {}", msg)?;
             queue!(self.tty, ResetColor)?;
@@ -192,7 +192,11 @@ impl Renderer {
     }
 
     pub fn set_flash(&mut self, msg: &str) {
-        self.flash = Some(msg.to_string());
+        self.flash = Some((msg.to_string(), Color::Green));
+    }
+
+    pub fn set_flash_error(&mut self, msg: &str) {
+        self.flash = Some((msg.to_string(), Color::Red));
     }
 
     pub fn cleanup(&mut self) -> io::Result<()> {

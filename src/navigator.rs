@@ -86,8 +86,11 @@ fn event_loop(
                 Action::Accept(path) => return Ok(NavigationResult::Selected(path)),
                 Action::Cancel => return Ok(NavigationResult::Cancelled),
                 Action::CopyPath(path) => {
-                    copy_to_clipboard(&path.display().to_string());
-                    renderer.set_flash("Copied!");
+                    if copy_to_clipboard(&path.display().to_string()) {
+                        renderer.set_flash("Copied!");
+                    } else {
+                        renderer.set_flash_error("Copy failed: clipboard tool not found");
+                    }
                 }
             }
         }
@@ -284,21 +287,15 @@ fn filter_entries(entries: &[Entry], query: &str, fuzzy: &FuzzyFilter) -> Vec<En
         .collect()
 }
 
-fn copy_to_clipboard(text: &str) {
-    if cfg!(target_os = "macos") {
-        let mut child = Command::new("pbcopy")
+fn copy_to_clipboard(text: &str) -> bool {
+    let mut child = if cfg!(target_os = "macos") {
+        Command::new("pbcopy")
             .stdin(std::process::Stdio::piped())
             .spawn()
-            .ok();
-        if let Some(ref mut c) = child {
-            if let Some(ref mut stdin) = c.stdin {
-                let _ = io::Write::write_all(stdin, text.as_bytes());
-            }
-            let _ = c.wait();
-        }
+            .ok()
     } else {
         // Linux: try xclip, then xsel
-        let mut child = Command::new("xclip")
+        Command::new("xclip")
             .args(["-selection", "clipboard"])
             .stdin(std::process::Stdio::piped())
             .spawn()
@@ -308,13 +305,16 @@ fn copy_to_clipboard(text: &str) {
                     .stdin(std::process::Stdio::piped())
                     .spawn()
             })
-            .ok();
-        if let Some(ref mut c) = child {
-            if let Some(ref mut stdin) = c.stdin {
-                let _ = io::Write::write_all(stdin, text.as_bytes());
-            }
-            let _ = c.wait();
+            .ok()
+    };
+
+    if let Some(ref mut c) = child {
+        if let Some(ref mut stdin) = c.stdin {
+            let _ = io::Write::write_all(stdin, text.as_bytes());
         }
+        c.wait().is_ok_and(|s| s.success())
+    } else {
+        false
     }
 }
 
