@@ -10,7 +10,7 @@ keywords = ["cli", "directory", "navigation", "terminal", "fuzzy"]
 categories = ["command-line-utilities"]
 
 [dependencies]
-crossterm = "0.28"
+crossterm = "0.29"
 fuzzy-matcher = "0.3"
 
 [dev-dependencies]
