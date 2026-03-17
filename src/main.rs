@@ -41,14 +41,21 @@ fn main() {
     if arg.as_deref() == Some("--init") {
         let shell_arg = env::args().nth(2);
         let shell = shell_arg
-            .or_else(|| env::var("SHELL").ok().and_then(|s| s.rsplit('/').next().map(String::from)))
+            .or_else(|| {
+                env::var("SHELL")
+                    .ok()
+                    .and_then(|s| s.rsplit('/').next().map(String::from))
+            })
             .unwrap_or_else(|| String::from("zsh"));
         match shell.as_str() {
             "zsh" => print!("{}", include_str!("../shell/ndir.zsh")),
             "bash" => print!("{}", include_str!("../shell/ndir.bash")),
             "fish" => print!("{}", include_str!("../shell/ndir.fish")),
             _ => {
-                eprintln!("ndir: unsupported shell '{}'. Supported: zsh, bash, fish", shell);
+                eprintln!(
+                    "ndir: unsupported shell '{}'. Supported: zsh, bash, fish",
+                    shell
+                );
                 process::exit(1);
             }
         }
