@@ -1,5 +1,5 @@
 function ndir
-    set -l tmpfile (mktemp /tmp/ndir.XXXXXX)
+    set -l tmpfile (mktemp (set -q TMPDIR; and echo $TMPDIR; or echo /tmp)/ndir.XXXXXX)
     command ndir $argv > $tmpfile
     set -l exit_code $status
     if test $exit_code -eq 0
