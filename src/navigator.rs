@@ -327,3 +327,369 @@ fn adjust_scroll(total: usize, selected: usize, offset: &mut usize) {
         *offset = selected - MAX_VISIBLE + 1;
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use tempfile::TempDir;
+
+    fn make_key(code: KeyCode, modifiers: KeyModifiers) -> KeyEvent {
+        KeyEvent::new(code, modifiers)
+    }
+
+    fn make_state(cwd: PathBuf) -> NavState {
+        NavState {
+            cwd,
+            selected: 0,
+            query: String::new(),
+            show_hidden: false,
+            show_files: false,
+            scroll_offset: 0,
+        }
+    }
+
+    fn sample_entries() -> Vec<Entry> {
+        vec![
+            Entry {
+                name: "alpha".into(),
+                is_dir: true,
+            },
+            Entry {
+                name: "beta".into(),
+                is_dir: true,
+            },
+            Entry {
+                name: "gamma".into(),
+                is_dir: false,
+            },
+        ]
+    }
+
+    // ── read_entries ──
+
+    #[test]
+    fn read_entries_lists_dirs_only_by_default() {
+        let tmp = TempDir::new().unwrap();
+        fs::create_dir(tmp.path().join("dir_a")).unwrap();
+        fs::create_dir(tmp.path().join("dir_b")).unwrap();
+        fs::write(tmp.path().join("file.txt"), "").unwrap();
+
+        let entries = read_entries(tmp.path(), false, false);
+        assert_eq!(entries.len(), 2);
+        assert!(entries.iter().all(|e| e.is_dir));
+    }
+
+    #[test]
+    fn read_entries_includes_files_when_show_files() {
+        let tmp = TempDir::new().unwrap();
+        fs::create_dir(tmp.path().join("dir_a")).unwrap();
+        fs::write(tmp.path().join("file.txt"), "").unwrap();
+
+        let entries = read_entries(tmp.path(), false, true);
+        assert_eq!(entries.len(), 2);
+        // dirs come first
+        assert!(entries[0].is_dir);
+        assert!(!entries[1].is_dir);
+    }
+
+    #[test]
+    fn read_entries_hides_dotfiles_by_default() {
+        let tmp = TempDir::new().unwrap();
+        fs::create_dir(tmp.path().join(".hidden")).unwrap();
+        fs::create_dir(tmp.path().join("visible")).unwrap();
+
+        let entries = read_entries(tmp.path(), false, false);
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].name, "visible");
+    }
+
+    #[test]
+    fn read_entries_shows_hidden_when_enabled() {
+        let tmp = TempDir::new().unwrap();
+        fs::create_dir(tmp.path().join(".hidden")).unwrap();
+        fs::create_dir(tmp.path().join("visible")).unwrap();
+
+        let entries = read_entries(tmp.path(), true, false);
+        assert_eq!(entries.len(), 2);
+    }
+
+    #[test]
+    fn read_entries_sorted_case_insensitive() {
+        let tmp = TempDir::new().unwrap();
+        fs::create_dir(tmp.path().join("Zebra")).unwrap();
+        fs::create_dir(tmp.path().join("apple")).unwrap();
+        fs::create_dir(tmp.path().join("Banana")).unwrap();
+
+        let entries = read_entries(tmp.path(), false, false);
+        let names: Vec<&str> = entries.iter().map(|e| e.name.as_str()).collect();
+        assert_eq!(names, vec!["apple", "Banana", "Zebra"]);
+    }
+
+    #[test]
+    fn read_entries_nonexistent_dir_returns_empty() {
+        let entries = read_entries(Path::new("/nonexistent_path_12345"), false, false);
+        assert!(entries.is_empty());
+    }
+
+    // ── filter_entries ──
+
+    #[test]
+    fn filter_entries_empty_query_returns_all() {
+        let fuzzy = FuzzyFilter::new();
+        let entries = sample_entries();
+        let result = filter_entries(&entries, "", &fuzzy);
+        assert_eq!(result.len(), entries.len());
+    }
+
+    #[test]
+    fn filter_entries_narrows_results() {
+        let fuzzy = FuzzyFilter::new();
+        let entries = sample_entries();
+        let result = filter_entries(&entries, "alp", &fuzzy);
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].name, "alpha");
+    }
+
+    #[test]
+    fn filter_entries_preserves_is_dir() {
+        let fuzzy = FuzzyFilter::new();
+        let entries = sample_entries();
+        let result = filter_entries(&entries, "gamma", &fuzzy);
+        assert_eq!(result.len(), 1);
+        assert!(!result[0].is_dir);
+    }
+
+    // ── adjust_scroll ──
+
+    #[test]
+    fn adjust_scroll_no_scroll_when_fits() {
+        let mut offset = 5;
+        adjust_scroll(10, 3, &mut offset);
+        assert_eq!(offset, 0);
+    }
+
+    #[test]
+    fn adjust_scroll_scrolls_up_when_selected_above() {
+        let mut offset = 10;
+        adjust_scroll(30, 5, &mut offset);
+        assert_eq!(offset, 5);
+    }
+
+    #[test]
+    fn adjust_scroll_scrolls_down_when_selected_below() {
+        let mut offset = 0;
+        adjust_scroll(30, 20, &mut offset);
+        assert_eq!(offset, 20 - MAX_VISIBLE + 1);
+    }
+
+    #[test]
+    fn adjust_scroll_keeps_offset_when_visible() {
+        let mut offset = 5;
+        adjust_scroll(30, 10, &mut offset);
+        assert_eq!(offset, 5);
+    }
+
+    // ── handle_key ──
+
+    #[test]
+    fn handle_key_esc_cancels() {
+        let tmp = TempDir::new().unwrap();
+        let mut state = make_state(tmp.path().to_path_buf());
+        let entries = sample_entries();
+        let key = make_key(KeyCode::Esc, KeyModifiers::NONE);
+        assert!(matches!(
+            handle_key(key, &mut state, &entries),
+            Action::Cancel
+        ));
+    }
+
+    #[test]
+    fn handle_key_ctrl_c_cancels() {
+        let tmp = TempDir::new().unwrap();
+        let mut state = make_state(tmp.path().to_path_buf());
+        let entries = sample_entries();
+        let key = make_key(KeyCode::Char('c'), KeyModifiers::CONTROL);
+        assert!(matches!(
+            handle_key(key, &mut state, &entries),
+            Action::Cancel
+        ));
+    }
+
+    #[test]
+    fn handle_key_down_increments_selected() {
+        let tmp = TempDir::new().unwrap();
+        let mut state = make_state(tmp.path().to_path_buf());
+        let entries = sample_entries();
+        let key = make_key(KeyCode::Down, KeyModifiers::NONE);
+        handle_key(key, &mut state, &entries);
+        assert_eq!(state.selected, 1);
+    }
+
+    #[test]
+    fn handle_key_down_wraps_around() {
+        let tmp = TempDir::new().unwrap();
+        let mut state = make_state(tmp.path().to_path_buf());
+        state.selected = 2;
+        let entries = sample_entries();
+        let key = make_key(KeyCode::Down, KeyModifiers::NONE);
+        handle_key(key, &mut state, &entries);
+        assert_eq!(state.selected, 0);
+    }
+
+    #[test]
+    fn handle_key_up_decrements_selected() {
+        let tmp = TempDir::new().unwrap();
+        let mut state = make_state(tmp.path().to_path_buf());
+        state.selected = 2;
+        let entries = sample_entries();
+        let key = make_key(KeyCode::Up, KeyModifiers::NONE);
+        handle_key(key, &mut state, &entries);
+        assert_eq!(state.selected, 1);
+    }
+
+    #[test]
+    fn handle_key_up_wraps_to_bottom() {
+        let tmp = TempDir::new().unwrap();
+        let mut state = make_state(tmp.path().to_path_buf());
+        let entries = sample_entries();
+        let key = make_key(KeyCode::Up, KeyModifiers::NONE);
+        handle_key(key, &mut state, &entries);
+        assert_eq!(state.selected, 2);
+    }
+
+    #[test]
+    fn handle_key_char_appends_to_query() {
+        let tmp = TempDir::new().unwrap();
+        let mut state = make_state(tmp.path().to_path_buf());
+        let entries = sample_entries();
+        let key = make_key(KeyCode::Char('a'), KeyModifiers::NONE);
+        handle_key(key, &mut state, &entries);
+        assert_eq!(state.query, "a");
+    }
+
+    #[test]
+    fn handle_key_backspace_removes_from_query() {
+        let tmp = TempDir::new().unwrap();
+        let mut state = make_state(tmp.path().to_path_buf());
+        state.query = "abc".into();
+        let entries = sample_entries();
+        let key = make_key(KeyCode::Backspace, KeyModifiers::NONE);
+        handle_key(key, &mut state, &entries);
+        assert_eq!(state.query, "ab");
+    }
+
+    #[test]
+    fn handle_key_ctrl_h_toggles_hidden() {
+        let tmp = TempDir::new().unwrap();
+        let mut state = make_state(tmp.path().to_path_buf());
+        let entries = sample_entries();
+        let key = make_key(KeyCode::Char('h'), KeyModifiers::CONTROL);
+        handle_key(key, &mut state, &entries);
+        assert!(state.show_hidden);
+        handle_key(key, &mut state, &entries);
+        assert!(!state.show_hidden);
+    }
+
+    #[test]
+    fn handle_key_ctrl_f_toggles_files() {
+        let tmp = TempDir::new().unwrap();
+        let mut state = make_state(tmp.path().to_path_buf());
+        let entries = sample_entries();
+        let key = make_key(KeyCode::Char('f'), KeyModifiers::CONTROL);
+        handle_key(key, &mut state, &entries);
+        assert!(state.show_files);
+    }
+
+    #[test]
+    fn handle_key_tab_accepts_cwd() {
+        let tmp = TempDir::new().unwrap();
+        let cwd = tmp.path().to_path_buf();
+        let mut state = make_state(cwd.clone());
+        let entries = sample_entries();
+        let key = make_key(KeyCode::Tab, KeyModifiers::NONE);
+        let action = handle_key(key, &mut state, &entries);
+        assert!(matches!(action, Action::Accept(p) if p == cwd));
+    }
+
+    #[test]
+    fn handle_key_enter_on_dir_accepts() {
+        let tmp = TempDir::new().unwrap();
+        let sub = tmp.path().join("subdir");
+        fs::create_dir(&sub).unwrap();
+        let mut state = make_state(tmp.path().to_path_buf());
+        let entries = vec![Entry {
+            name: "subdir".into(),
+            is_dir: true,
+        }];
+        let key = make_key(KeyCode::Enter, KeyModifiers::NONE);
+        let action = handle_key(key, &mut state, &entries);
+        assert!(matches!(action, Action::Accept(_)));
+    }
+
+    #[test]
+    fn handle_key_enter_on_file_continues() {
+        let tmp = TempDir::new().unwrap();
+        fs::write(tmp.path().join("file.txt"), "").unwrap();
+        let mut state = make_state(tmp.path().to_path_buf());
+        let entries = vec![Entry {
+            name: "file.txt".into(),
+            is_dir: false,
+        }];
+        let key = make_key(KeyCode::Enter, KeyModifiers::NONE);
+        let action = handle_key(key, &mut state, &entries);
+        assert!(matches!(action, Action::Continue));
+    }
+
+    #[test]
+    fn handle_key_right_navigates_into_dir() {
+        let tmp = TempDir::new().unwrap();
+        let sub = tmp.path().join("child");
+        fs::create_dir(&sub).unwrap();
+        let mut state = make_state(tmp.path().to_path_buf());
+        let entries = vec![Entry {
+            name: "child".into(),
+            is_dir: true,
+        }];
+        let key = make_key(KeyCode::Right, KeyModifiers::NONE);
+        handle_key(key, &mut state, &entries);
+        assert_eq!(state.cwd, fs::canonicalize(&sub).unwrap());
+        assert_eq!(state.selected, 0);
+        assert!(state.query.is_empty());
+    }
+
+    #[test]
+    fn handle_key_left_goes_to_parent() {
+        let tmp = TempDir::new().unwrap();
+        let sub = tmp.path().join("child");
+        fs::create_dir(&sub).unwrap();
+        let canonical_sub = fs::canonicalize(&sub).unwrap();
+        let canonical_tmp = fs::canonicalize(tmp.path()).unwrap();
+        let mut state = make_state(canonical_sub);
+        let entries = sample_entries();
+        let key = make_key(KeyCode::Left, KeyModifiers::NONE);
+        handle_key(key, &mut state, &entries);
+        assert_eq!(state.cwd, canonical_tmp);
+    }
+
+    #[test]
+    fn handle_key_vim_ctrl_j_moves_down() {
+        let tmp = TempDir::new().unwrap();
+        let mut state = make_state(tmp.path().to_path_buf());
+        let entries = sample_entries();
+        let key = make_key(KeyCode::Char('j'), KeyModifiers::CONTROL);
+        handle_key(key, &mut state, &entries);
+        assert_eq!(state.selected, 1);
+    }
+
+    #[test]
+    fn handle_key_vim_ctrl_k_moves_up() {
+        let tmp = TempDir::new().unwrap();
+        let mut state = make_state(tmp.path().to_path_buf());
+        state.selected = 1;
+        let entries = sample_entries();
+        let key = make_key(KeyCode::Char('k'), KeyModifiers::CONTROL);
+        handle_key(key, &mut state, &entries);
+        assert_eq!(state.selected, 0);
+    }
+}
