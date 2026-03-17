@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-03-17
+
+### Added
+
+- Unit tests for core logic: `read_entries`, `filter_entries`, `adjust_scroll`, `handle_key`, `format_path`, `FuzzyFilter::filter` (38 tests)
+- Bash and Fish shell support (`ndir --init bash`, `ndir --init fish`)
+- `--help` flag
+- User feedback when clipboard copy fails (red error flash message)
+
+### Fixed
+
+- Use `$TMPDIR` instead of hardcoded `/tmp` in shell scripts for portability
+- `cargo fmt` formatting issue in `main.rs`
+
+### Changed
+
+- Updated CI actions for Node.js 24 compatibility (`actions/checkout` v6, `actions/upload-artifact` v7, `actions/download-artifact` v8)
+
 ## [0.4.3] - 2026-03-16
 
 ### Added

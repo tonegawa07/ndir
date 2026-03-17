@@ -1,6 +1,6 @@
 [package]
 name = "ndir"
-version = "0.4.3"
+version = "0.5.0"
 edition = "2021"
 description = "Inline arrow-key directory navigation for your shell"
 license = "MIT"
